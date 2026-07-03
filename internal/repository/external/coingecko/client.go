@@ -7,22 +7,26 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type CoinGeckoClient struct {
 	url        string
 	name       string
 	httpClient *http.Client
+	limiter    *rate.Limiter
 	coinIDs    map[string]string
 }
 
-func New(url, name string) *CoinGeckoClient {
+func New(url, name string, rps rate.Limit, burst int) *CoinGeckoClient {
 	return &CoinGeckoClient{
 		url:  url,
 		name: name,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
+		limiter: rate.NewLimiter(rps, burst),
 		coinIDs: map[string]string{
 			"BTC":  "bitcoin",
 			"ETH":  "ethereum",
@@ -42,6 +46,11 @@ func (c *CoinGeckoClient) GetName() string {
 }
 
 func (c *CoinGeckoClient) GetCurrency(ctx context.Context, currency, quote string) (float64, error) {
+
+	if !c.limiter.Allow() {
+		return -1, fmt.Errorf("%s: rate limit exceeded", c.name)
+	}
+
 	coinID, ok := c.coinIDs[strings.ToUpper(currency)]
 	if !ok {
 		return -1, fmt.Errorf("unsupported currency for coingecko: %s", currency)

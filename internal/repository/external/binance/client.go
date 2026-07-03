@@ -7,21 +7,25 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type BinanceClient struct {
 	url        string
 	name       string
 	httpClient *http.Client
+	limiter    *rate.Limiter
 }
 
-func New(url, name string) *BinanceClient {
+func New(url, name string, rps rate.Limit, burst int) *BinanceClient {
 	return &BinanceClient{
 		url:  url,
 		name: name,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
+		limiter: rate.NewLimiter(rps, burst),
 	}
 }
 
@@ -30,6 +34,11 @@ func (c *BinanceClient) GetName() string {
 }
 
 func (c *BinanceClient) GetCurrency(ctx context.Context, currency, quote string) (float64, error) {
+
+	if !c.limiter.Allow() {
+		return -1, fmt.Errorf("%s: rate limit exceeded", c.name)
+	}
+
 	if quote == "USD" {
 		quote = "USDT"
 	}

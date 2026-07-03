@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -86,8 +87,8 @@ func (s *server) ListRates(ctx context.Context, req *pb.ListRatesRequest) (*pb.L
 func main() {
 	//ЗАГЛУШКИ В АРГУМЕНТАХ, ДОБАВИТЬ ПОЗЖЕ КОНФИГ
 	cache := cache.NewReddisCache("localhost:6379", "", 0)
-	coinGeckoClient := coingecko.New("https://api.coingecko.com/api/v3/simple/price", "CoinGecko")
-	binanceClient := binance.New("https://data-api.binance.vision/api/v3/ticker/price", "Binance")
+	coinGeckoClient := coingecko.New("https://api.coingecko.com/api/v3/simple/price", "CoinGecko", rate.Limit(10.0/60.0), 5)
+	binanceClient := binance.New("https://data-api.binance.vision/api/v3/ticker/price", "Binance", rate.Limit(10), 20)
 	aggregator := aggregator.New([]external.Provider{coinGeckoClient, binanceClient})
 	rateService := service.New(cache, aggregator)
 
