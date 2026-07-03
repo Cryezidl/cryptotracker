@@ -5,12 +5,12 @@ import (
 	"log"
 	"net"
 
-	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"cryptotracker/internal/config"
 	"cryptotracker/internal/repository/cache"
 	"cryptotracker/internal/repository/external"
 	"cryptotracker/internal/repository/external/aggregator"
@@ -39,7 +39,7 @@ func (s *server) GetRate(ctx context.Context, req *pb.GetRateRequest) (*pb.RateR
 	base := req.GetPair().GetBase()
 	quote := req.GetPair().GetQuote()
 
-	val, err := s.rateService.GetRate(ctx, base, quote)
+	rate, err := s.rateService.GetRate(ctx, base, quote)
 	if err != nil {
 		log.Printf("Error getting rate for %s/%s: %v", base, quote, err)
 		return nil, status.Errorf(codes.Internal, "internal service error: %v", err)
@@ -47,9 +47,9 @@ func (s *server) GetRate(ctx context.Context, req *pb.GetRateRequest) (*pb.RateR
 
 	return &pb.RateResponse{
 		Pair:      req.GetPair(),
-		Price:     val,
-		UpdatedAt: timestamppb.Now(), //ЗАГЛУШКА
-		Source:    "in process",      //ЗАГЛУШКА
+		Price:     rate.Price,
+		UpdatedAt: timestamppb.New(rate.Timestamp),
+		Source:    rate.Source,
 	}, nil
 }
 
@@ -63,7 +63,7 @@ func (s *server) ListRates(ctx context.Context, req *pb.ListRatesRequest) (*pb.L
 		base := pair.GetBase()
 		quote := pair.GetQuote()
 
-		val, err := s.rateService.GetRate(ctx, base, quote)
+		rate, err := s.rateService.GetRate(ctx, base, quote)
 		if err != nil {
 			log.Printf("Error getting rate for %s/%s: %v", base, quote, err)
 			continue
@@ -71,9 +71,9 @@ func (s *server) ListRates(ctx context.Context, req *pb.ListRatesRequest) (*pb.L
 
 		responses = append(responses, &pb.RateResponse{
 			Pair:      pair,
-			Price:     val,
-			UpdatedAt: timestamppb.Now(), //ЗАГЛУШКА
-			Source:    "in process",      //ЗАГЛУШКА
+			Price:     rate.Price,
+			UpdatedAt: timestamppb.New(rate.Timestamp),
+			Source:    rate.Source,
 		})
 	}
 
@@ -85,15 +85,23 @@ func (s *server) ListRates(ctx context.Context, req *pb.ListRatesRequest) (*pb.L
 }
 
 func main() {
-	//ЗАГЛУШКИ В АРГУМЕНТАХ, ДОБАВИТЬ ПОЗЖЕ КОНФИГ
-	cache := cache.NewReddisCache("localhost:6379", "", 0)
-	coinGeckoClient := coingecko.New("https://api.coingecko.com/api/v3/simple/price", "CoinGecko", rate.Limit(10.0/60.0), 5)
-	binanceClient := binance.New("https://data-api.binance.vision/api/v3/ticker/price", "Binance", rate.Limit(10), 20)
-	aggregator := aggregator.New([]external.Provider{coinGeckoClient, binanceClient})
-	rateService := service.New(cache, aggregator)
+	// 0. Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 
-	// 2. Create a TCP listener on port 50051
-	lis, err := net.Listen("tcp", ":50051")
+	// 1. Initialize the cache and service
+	cache := cache.NewReddisCache(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
+
+	coinGeckoClient := coingecko.New(cfg.Coingecko.URL, "CoinGecko", cfg.Coingecko.RPS, cfg.Coingecko.Burst)
+	binanceClient := binance.New(cfg.Binance.URL, "Binance", cfg.Binance.RPS, cfg.Binance.Burst)
+
+	aggregator := aggregator.New([]external.Provider{coinGeckoClient, binanceClient})
+	rateService := service.New(cache, aggregator, cfg.CacheTTL)
+
+	// 2. Create a TCP listener on port from config
+	lis, err := net.Listen("tcp", ":"+cfg.GRPCPort)
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
@@ -105,11 +113,8 @@ func main() {
 	gRPCServerImpl := newServer(rateService)
 	pb.RegisterRatesServiceServer(grpcServer, gRPCServerImpl)
 
-	// // 4. Включаем рефлексию для отладки (через evans или postman), опционально
-	// reflection.Register(grpcServer)
-
 	// 5. Start serving requests
-	log.Printf("gRPC сервер запущен на порту :50051")
+	log.Printf("gRPC сервер запущен на порту :%s", cfg.GRPCPort)
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}

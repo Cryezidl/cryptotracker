@@ -2,9 +2,10 @@ package cache
 
 import (
 	"context"
+	"cryptotracker/internal/model"
 	"cryptotracker/pkg/myerrors"
+	"encoding/json"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -23,26 +24,32 @@ func NewReddisCache(addr, psw string, db int) *RedisCache {
 	return &RedisCache{rdb: rdb}
 }
 
-func (c *RedisCache) SetCrypto(ctx context.Context, currency, quote string, price float64, ttl time.Duration) error {
+func (c *RedisCache) SetCrypto(ctx context.Context, currency, quote string, rate *model.Rate, ttl time.Duration) error {
+	jsonData, err := json.Marshal(rate)
+	if err != nil {
+		return fmt.Errorf("failed to marshal rate: %w", err)
+	}
+
 	key := "crypto:pair:" + currency + ":" + quote
-	if err := c.rdb.Set(ctx, key, price, ttl).Err(); err != nil {
+
+	if err := c.rdb.Set(ctx, key, jsonData, ttl).Err(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *RedisCache) GetCrypto(ctx context.Context, currency, quote string) (float64, error) {
+func (c *RedisCache) GetCrypto(ctx context.Context, currency, quote string) (*model.Rate, error) {
 	key := "crypto:pair:" + currency + ":" + quote
-	val, err := c.rdb.Get(ctx, key).Result()
+	val, err := c.rdb.Get(ctx, key).Bytes()
 	if err == redis.Nil {
-		return -1, myerrors.KeyNotFoundInCacheError
+		return nil, myerrors.KeyNotFoundInCacheError
 	} else if err != nil {
-		return -1, myerrors.ReadingCacheError
+		return nil, myerrors.ReadingCacheError
 	}
 
-	valConverted, err := strconv.ParseFloat(val, 64)
-	if err != nil {
-		return -1, fmt.Errorf("failed to parse price '%s': %w", val, err)
+	valConverted := &model.Rate{}
+	if err = json.Unmarshal(val, valConverted); err != nil {
+		return nil, fmt.Errorf("failed to parse rate '%s': %w", val, err)
 	}
 
 	return valConverted, nil

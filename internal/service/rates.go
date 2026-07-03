@@ -2,52 +2,55 @@ package service
 
 import (
 	"context"
-	"cryptotracker/internal/repository/cache"
-	"cryptotracker/internal/repository/external"
 	"fmt"
 	"strings"
 	"time"
+
+	"cryptotracker/internal/model"
+	"cryptotracker/internal/repository/cache"
+	"cryptotracker/internal/repository/external"
 )
 
 type Service struct {
 	cache    cache.CacheRepository
 	provider external.Provider
+	cacheTTL time.Duration
 }
 
-func New(cache cache.CacheRepository, provider external.Provider) *Service {
-	return &Service{cache: cache, provider: provider}
+func New(cache cache.CacheRepository, provider external.Provider, cacheTTL time.Duration) *Service {
+	return &Service{cache: cache, provider: provider, cacheTTL: cacheTTL}
 }
 
-func (s *Service) GetRate(ctx context.Context, currency, quote string) (float64, error) {
+func (s *Service) GetRate(ctx context.Context, currency, quote string) (*model.Rate, error) {
 	//normalize input
 	clean, found := normalize(currency)
 	if !found {
-		return -1, fmt.Errorf("unknown currency")
+		return nil, fmt.Errorf("unknown currency")
 	}
 
 	quoteClean, found := normalize(quote)
 	if !found {
-		return -1, fmt.Errorf("unknown quote currency")
+		return nil, fmt.Errorf("unknown quote currency")
 	}
 
 	//check cache first
-	price, err := s.cache.GetCrypto(ctx, clean, quoteClean)
+	rate, err := s.cache.GetCrypto(ctx, clean, quoteClean)
 	if err == nil {
-		return price, nil
+		return rate, nil
 	}
 
 	//if not found in cache, fetch from provider
-	price, err = s.provider.GetCurrency(ctx, clean, quoteClean)
+	rate, err = s.provider.GetCurrency(ctx, clean, quoteClean)
 	if err != nil {
-		return -1, fmt.Errorf("failed to fetch rate for %s: %w", clean, err)
+		return nil, fmt.Errorf("failed to fetch rate for %s: %w", clean, err)
 	}
 
 	//store in cache asynchronously
 	go func() {
-		s.cache.SetCrypto(context.Background(), clean, quoteClean, price, 30*time.Minute)
+		s.cache.SetCrypto(context.Background(), clean, quoteClean, rate, s.cacheTTL)
 	}()
 
-	return price, nil
+	return rate, nil
 }
 
 func normalize(input string) (string, bool) {

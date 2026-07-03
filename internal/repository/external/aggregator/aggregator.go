@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"cryptotracker/internal/model"
 	"cryptotracker/internal/repository/external"
 	"cryptotracker/pkg/myerrors"
 	"fmt"
@@ -24,12 +25,12 @@ func (p *FailoverProvider) GetName() string {
 	return strings.Join(names, ", ")
 }
 
-func (p *FailoverProvider) GetCurrency(ctx context.Context, currency, quote string) (float64, error) {
+func (p *FailoverProvider) GetCurrency(ctx context.Context, currency, quote string) (*model.Rate, error) {
 	ctxCancel, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	type res struct {
-		val float64
+		val *model.Rate
 		err error
 	}
 	results := make(chan res, len(p.providers))
@@ -44,7 +45,7 @@ func (p *FailoverProvider) GetCurrency(ctx context.Context, currency, quote stri
 	for i := 0; i < len(p.providers); i++ {
 		select {
 		case <-ctx.Done():
-			return -1, ctx.Err()
+			return nil, ctx.Err()
 		case r := <-results:
 			if r.err == nil {
 				cancel()
@@ -55,7 +56,7 @@ func (p *FailoverProvider) GetCurrency(ctx context.Context, currency, quote stri
 		}
 	}
 	if lastErr != nil {
-		return -1, fmt.Errorf("%w: last error from client: %v", myerrors.FetchingCurrencyError, lastErr)
+		return nil, fmt.Errorf("%w: last error from client: %v", myerrors.FetchingCurrencyError, lastErr)
 	}
-	return -1, myerrors.FetchingCurrencyError
+	return nil, myerrors.FetchingCurrencyError
 }

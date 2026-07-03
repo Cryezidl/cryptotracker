@@ -2,6 +2,7 @@ package binance
 
 import (
 	"context"
+	"cryptotracker/internal/model"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,10 +34,10 @@ func (c *BinanceClient) GetName() string {
 	return c.name
 }
 
-func (c *BinanceClient) GetCurrency(ctx context.Context, currency, quote string) (float64, error) {
+func (c *BinanceClient) GetCurrency(ctx context.Context, currency, quote string) (*model.Rate, error) {
 
 	if !c.limiter.Allow() {
-		return -1, fmt.Errorf("%s: rate limit exceeded", c.name)
+		return nil, fmt.Errorf("%s: rate limit exceeded", c.name)
 	}
 
 	if quote == "USD" {
@@ -44,17 +45,17 @@ func (c *BinanceClient) GetCurrency(ctx context.Context, currency, quote string)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"?symbol="+currency+quote, nil)
 	if err != nil {
-		return -1, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return -1, fmt.Errorf("binance api returned status %d (%s)", resp.StatusCode, resp.Status)
+		return nil, fmt.Errorf("binance api returned status %d (%s)", resp.StatusCode, resp.Status)
 	}
 
 	type jsonObj struct {
@@ -64,12 +65,12 @@ func (c *BinanceClient) GetCurrency(ctx context.Context, currency, quote string)
 
 	var obj jsonObj
 	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
-		return -1, fmt.Errorf("failed to decode json: %w", err)
+		return nil, fmt.Errorf("failed to decode json: %w", err)
 	}
 
 	curPrice, err := strconv.ParseFloat(obj.Price, 64)
 	if err != nil {
-		return -1, fmt.Errorf("failed to parse price '%s': %w", obj.Price, err)
+		return nil, fmt.Errorf("failed to parse price '%s': %w", obj.Price, err)
 	}
-	return curPrice, nil
+	return &model.Rate{Price: curPrice, Timestamp: time.Now(), Source: c.name}, nil
 }

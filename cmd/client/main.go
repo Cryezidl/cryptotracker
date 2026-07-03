@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"cryptotracker/internal/config"
 	pb "cryptotracker/proto/rates"
 )
 
@@ -37,11 +38,16 @@ func parsePair(pair string) []string {
 }
 
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
 	modeFlag := flag.String("mode", "get", "режим: get | list | subscribe")
 	pairsFlag := flag.String("pairs", "BTC/USD", "pairs of currencies to be converted. If you want convert list of currencies, follow this example: \"BTC/USD,BTC/EUR\"")
 	flag.Parse()
 	// 1. Устанавливаем соединение с сервером.
-	conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient("localhost:"+cfg.GRPCPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("Не удалось подключиться к gRPC-серверу: %v", err)
 	}
