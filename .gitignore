@@ -1,0 +1,21 @@
+# Binaries
+/bin/
+/server
+/client
+*.exe
+
+# Test & coverage
+*.out
+coverage.*
+
+# Env / local config
+.env
+*.local.yaml
+
+# IDE
+.idea/
+.vscode/
+
+
+
+notes.txt

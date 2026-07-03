@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package rates;
+
+option go_package = "github.com/Cryezidl/cryptotracker/proto/rates";
+
+import "google/protobuf/timestamp.proto";
+
+// RatesService отдаёт текущий курс валюты и позволяет подписаться на изменения.
+service RatesService {
+  // GetRate возвращает текущий курс по запрошенной паре (например BTC/USD).
+  // Сервис сначала смотрит в кеш (Redis), и только при промахе идёт во внешний API.
+  rpc GetRate(GetRateRequest) returns (RateResponse);
+
+  // ListRates возвращает курсы сразу по нескольким парам за один запрос.
+  rpc ListRates(ListRatesRequest) returns (ListRatesResponse);
+
+  // SubscribeRates открывает server-стрим: клиент получает обновление каждый раз,
+  // когда курс запрошенной пары меняется (приходит из Redis pub/sub внутри сервера).
+  rpc SubscribeRates(SubscribeRatesRequest) returns (stream RateUpdate);
+
+  // CreateAlert создаёт пороговое уведомление: "сообщи мне, когда курс пересечёт X".
+  rpc CreateAlert(CreateAlertRequest) returns (CreateAlertResponse);
+
+  // SubscribeAlerts стримит сработавшие алерты конкретного пользователя.
+  rpc SubscribeAlerts(SubscribeAlertsRequest) returns (stream AlertTriggered);
+}
+
+// --- Базовые сущности ---
+ 
+// CurrencyPair описывает пару базовой и квотируемой валюты, например BASE=BTC, QUOTE=USD.
+message CurrencyPair {
+  string base = 1;
+  string quote = 2;
+}
+
+// --- GetRate ---
+
+message GetRateRequest {
+  CurrencyPair pair = 1;
+}
+
+message RateResponse {
+  CurrencyPair pair = 1;
+  double price = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  // Источник данных: "cache" или "external_api" — удобно для дебага/метрик.
+  string source = 4;
+}
+
+// --- ListRates ---
+
+message ListRatesRequest {
+  repeated CurrencyPair pairs = 1;
+}
+
+message ListRatesResponse {
+  repeated RateResponse rates = 1;
+}
+
+// --- SubscribeRates ---
+
+message SubscribeRatesRequest {
+  CurrencyPair pair = 1;
+}
+
+message RateUpdate {
+  CurrencyPair pair = 1;
+  double old_price = 2;
+  double new_price = 3;
+  double change_percent = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+// --- Alerts ---
+
+enum AlertCondition {
+  ALERT_CONDITION_UNSPECIFIED = 0;
+  ALERT_CONDITION_ABOVE = 1;
+  ALERT_CONDITION_BELOW = 2;
+}
+
+message CreateAlertRequest {
+  string user_id = 1;
+  CurrencyPair pair = 2;
+  AlertCondition condition = 3;
+  double threshold = 4;
+}
+
+message CreateAlertResponse {
+  string alert_id = 1;
+}
+
+message SubscribeAlertsRequest {
+  string user_id = 1;
+}
+
+message AlertTriggered {
+  string alert_id = 1;
+  CurrencyPair pair = 2;
+  AlertCondition condition = 3;
+  double threshold = 4;
+  double current_price = 5;
+  google.protobuf.Timestamp triggered_at = 6;
+}
