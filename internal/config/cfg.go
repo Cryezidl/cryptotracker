@@ -8,8 +8,13 @@ import (
 )
 
 type Config struct {
-	GRPCPort string        `env:"GRPC_PORT" env-default:"50051"`
-	CacheTTL time.Duration `env:"CACHE_TTL" env-default:"30m"`
+	GRPCPort       string        `env:"GRPC_PORT" env-default:"50051"`
+	CacheTTL       time.Duration `env:"CACHE_TTL" env-default:"30m"`
+	WorkerInterval time.Duration `env:"WORKER_INTERVAL" env-default:"10m"`
+
+	// TrackedPairs is a comma-separated list of BASE/QUOTE pairs the worker
+	// polls in the background, e.g. "BTC/USD,ETH/USD".
+	TrackedPairs []string `env:"TRACKED_PAIRS" env-separator:"," env-default:"BTC/USD,ETH/USD"`
 
 	Redis struct {
 		Addr     string `env:"REDIS_ADDR" env-default:"localhost:6379"`
